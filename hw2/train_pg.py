@@ -34,8 +34,11 @@ def build_mlp(
     #========================================================================================#
 
     with tf.variable_scope(scope):
-        # YOUR_CODE_HERE
-        pass
+        input_layer = input_placeholder
+        for i in range(n_layers-1):
+            input_layer = tf.layers.dense(input_layer, size, activation=activation)
+
+        return tf.layers.dense(input_layer, output_size, activation=output_activation)
 
 def pathlength(path):
     return len(path["reward"])
@@ -123,9 +126,8 @@ def train_PG(exp_name='',
         sy_ac_na = tf.placeholder(shape=[None, ac_dim], name="ac", dtype=tf.float32) 
 
     # Define a placeholder for advantages
-    sy_adv_n = TODO
-
-
+    sy_adv_n = tf.placeholder(shape=[None], name="adv", dtype=tf.float32)
+    
     #========================================================================================#
     #                           ----------SECTION 4----------
     # Networks
@@ -167,15 +169,17 @@ def train_PG(exp_name='',
 
     if discrete:
         # YOUR_CODE_HERE
-        sy_logits_na = TODO
-        sy_sampled_ac = TODO # Hint: Use the tf.multinomial op
-        sy_logprob_n = TODO
+        sy_logits_na = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
+        sy_sampled_ac = tf.multinomial(sy_logits_na, 1)
+        idxs = tf.transpose(tf.stack([tf.range(tf.shape(sy_ac_na)[0]), sy_ac_na]))
+        sy_logprob_n = tf.gather_nd(sy_logits_na, idxs) - tf.reduce_logsumexp(sy_logits_na, axis=1)
 
     else:
         # YOUR_CODE_HERE
-        sy_mean = TODO
-        sy_logstd = TODO # logstd should just be a trainable variable, not a network output.
-        sy_sampled_ac = TODO
+        sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
+        # should this be a 3-tensor ie 1 cov matrix per sample vs 2-tensor ie 1 var scalar per sample
+        sy_logstd = tf.Variable(tf.ones([None, ac_dim, ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
+        sy_sampled_ac = tf.matmul(sy_logstd, tf.random_normal([None, ac_dim])) * sy_logstd + sy_mean
         sy_logprob_n = TODO  # Hint: Use the log probability under a multivariate gaussian. 
 
 
@@ -185,7 +189,8 @@ def train_PG(exp_name='',
     # Loss Function and Training Operation
     #========================================================================================#
 
-    loss = TODO # Loss function that we'll differentiate to get the policy gradient.
+    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=tf.one_hot(sy_ac_na, ac_dim), logits=sy_logits_na) # Loss function that we'll differentiate to get the policy gradient.
+    loss = tf.tensordot(cross_entropy, sy_adv_n, 1)
     update_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 
@@ -242,7 +247,7 @@ def train_PG(exp_name='',
                     time.sleep(0.05)
                 obs.append(ob)
                 ac = sess.run(sy_sampled_ac, feed_dict={sy_ob_no : ob[None]})
-                ac = ac[0]
+                ac = ac[0][0]
                 acs.append(ac)
                 ob, rew, done, _ = env.step(ac)
                 rewards.append(rew)
@@ -317,7 +322,23 @@ def train_PG(exp_name='',
         #====================================================================================#
 
         # YOUR_CODE_HERE
-        q_n = TODO
+        # trajectory-based PG currently
+        if reward_to_go:
+            pass
+        else:
+            u = np.empty(max_path_length)
+            u[0] = 1
+            u[1:] = gamma
+            reward_vec = np.cumprod(u)
+            q_n = []
+            for path in paths:
+                rew = path["reward"]
+                l = len(rew)
+                ret = rew.dot(reward_vec[:l])
+                q_ts = np.repeat(ret, l)
+                q_n.append(q_ts)
+                    
+            q_n = np.concatenate(q_n)
 
         #====================================================================================#
         #                           ----------SECTION 5----------
@@ -381,6 +402,7 @@ def train_PG(exp_name='',
 
         # YOUR_CODE_HERE
 
+        sess.run(update_op, feed_dict={sy_ob_no: ob_no, sy_ac_na: ac_na, sy_adv_n: adv_n})
 
         # Log diagnostics
         returns = [path["reward"].sum() for path in paths]
