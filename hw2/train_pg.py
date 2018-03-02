@@ -170,17 +170,17 @@ def train_PG(exp_name='',
     if discrete:
         # YOUR_CODE_HERE
         sy_logits_na = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
-        sy_sampled_ac = tf.multinomial(sy_logits_na, 1)
+        sy_sampled_ac = tf.squeeze(tf.multinomial(sy_logits_na, 1))
         idxs = tf.transpose(tf.stack([tf.range(tf.shape(sy_ac_na)[0]), sy_ac_na]))
         sy_logprob_n = tf.gather_nd(sy_logits_na, idxs) - tf.reduce_logsumexp(sy_logits_na, axis=1)
 
     else:
         # YOUR_CODE_HERE
-        sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
-        # should this be a 3-tensor ie 1 cov matrix per sample vs 2-tensor ie 1 var scalar per sample
-        sy_logstd = tf.Variable(tf.ones([None, ac_dim, ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
-        sy_sampled_ac = tf.matmul(sy_logstd, tf.random_normal([None, ac_dim])) * sy_logstd + sy_mean
-        sy_logprob_n = TODO  # Hint: Use the log probability under a multivariate gaussian. 
+        sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_mean_na")
+        sy_logstd = tf.Variable(tf.zeros([None, ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
+        sy_sampled_ac = tf.random_normal([ac_dim]) * sy_logstd + sy_mean
+        sy_sigma_2 = tf.exp(sy_logstd) ** 2
+        sy_logprob_n = tf.reduce_sum(tf.log(tf.rsqrt(2 * np.pi * sy_sigma_2)) - (sy_ac_na - sy_mean) ** 2 / (2 * sy_sigma_2))  # Hint: Use the log probability under a multivariate gaussian. 
 
 
 
@@ -188,9 +188,7 @@ def train_PG(exp_name='',
     #                           ----------SECTION 4----------
     # Loss Function and Training Operation
     #========================================================================================#
-
-    cross_entropy = tf.nn.softmax_cross_entropy_with_logits(labels=tf.one_hot(sy_ac_na, ac_dim), logits=sy_logits_na) # Loss function that we'll differentiate to get the policy gradient.
-    loss = tf.tensordot(cross_entropy, sy_adv_n, 1)
+    loss = - sy_logprob_n * sy_adv_n
     update_op = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 
@@ -247,7 +245,7 @@ def train_PG(exp_name='',
                     time.sleep(0.05)
                 obs.append(ob)
                 ac = sess.run(sy_sampled_ac, feed_dict={sy_ob_no : ob[None]})
-                ac = ac[0][0]
+                # ac = ac[0]
                 acs.append(ac)
                 ob, rew, done, _ = env.step(ac)
                 rewards.append(rew)
@@ -323,22 +321,27 @@ def train_PG(exp_name='',
 
         # YOUR_CODE_HERE
         # trajectory-based PG currently
+        u = np.empty(max_path_length)
+        u[0] = 1
+        u[1:] = gamma
+        reward_vec = np.cumprod(u)
+        q_n = []
+
         if reward_to_go:
-            pass
+            for path in paths:
+                rew = path["reward"]
+                l = len(rew)
+                q_ts = [rew[i:].dot(reward_vec[:l-i]) for i in range(l)]
+                q_n.append(q_ts)
         else:
-            u = np.empty(max_path_length)
-            u[0] = 1
-            u[1:] = gamma
-            reward_vec = np.cumprod(u)
-            q_n = []
             for path in paths:
                 rew = path["reward"]
                 l = len(rew)
                 ret = rew.dot(reward_vec[:l])
                 q_ts = np.repeat(ret, l)
                 q_n.append(q_ts)
-                    
-            q_n = np.concatenate(q_n)
+                
+        q_n = np.concatenate(q_n)
 
         #====================================================================================#
         #                           ----------SECTION 5----------
@@ -368,7 +371,7 @@ def train_PG(exp_name='',
             # On the next line, implement a trick which is known empirically to reduce variance
             # in policy gradient methods: normalize adv_n to have mean zero and std=1. 
             # YOUR_CODE_HERE
-            pass
+            adv_n = (adv_n - np.mean(adv_n)) / np.std(adv_n)
 
 
         #====================================================================================#
@@ -386,7 +389,7 @@ def train_PG(exp_name='',
             # Hint #bl2: Instead of trying to target raw Q-values directly, rescale the 
             # targets to have mean zero and std=1. (Goes with Hint #bl1 above.)
 
-            # YOUR_CODE_HERE
+            # YOUR_CODE_HERE    
             pass
 
         #====================================================================================#
