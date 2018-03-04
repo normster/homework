@@ -177,7 +177,7 @@ def train_PG(exp_name='',
     else:
         # YOUR_CODE_HERE
         sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_mean_na")
-        sy_logstd = tf.Variable(tf.zeros([None, ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
+        sy_logstd = tf.Variable(tf.zeros([ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
         sy_sampled_ac = tf.random_normal([ac_dim]) * sy_logstd + sy_mean
         sy_sigma_2 = tf.exp(sy_logstd) ** 2
         sy_logprob_n = tf.reduce_sum(tf.log(tf.rsqrt(2 * np.pi * sy_sigma_2)) - (sy_ac_na - sy_mean) ** 2 / (2 * sy_sigma_2))  # Hint: Use the log probability under a multivariate gaussian. 
@@ -245,7 +245,7 @@ def train_PG(exp_name='',
                     time.sleep(0.05)
                 obs.append(ob)
                 ac = sess.run(sy_sampled_ac, feed_dict={sy_ob_no : ob[None]})
-                # ac = ac[0]
+                ac = ac[0]
                 acs.append(ac)
                 ob, rew, done, _ = env.step(ac)
                 rewards.append(rew)
