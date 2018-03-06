@@ -170,7 +170,7 @@ def train_PG(exp_name='',
     if discrete:
         # YOUR_CODE_HERE
         sy_logits_na = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
-        sy_sampled_ac = tf.squeeze(tf.multinomial(sy_logits_na, 1))
+        sy_sampled_ac = tf.squeeze(tf.multinomial(sy_logits_na, 1), [1])
         idxs = tf.transpose(tf.stack([tf.range(tf.shape(sy_ac_na)[0]), sy_ac_na]))
         sy_logprob_n = tf.gather_nd(sy_logits_na, idxs) - tf.reduce_logsumexp(sy_logits_na, axis=1)
 
@@ -178,9 +178,9 @@ def train_PG(exp_name='',
         # YOUR_CODE_HERE
         sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_mean_na")
         sy_logstd = tf.Variable(tf.zeros([ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
-        sy_sampled_ac = tf.random_normal([ac_dim]) * sy_logstd + sy_mean
         sy_sigma_2 = tf.exp(sy_logstd) ** 2
-        sy_logprob_n = tf.reduce_sum(tf.log(tf.rsqrt(2 * np.pi * sy_sigma_2)) - (sy_ac_na - sy_mean) ** 2 / (2 * sy_sigma_2))  # Hint: Use the log probability under a multivariate gaussian. 
+        sy_sampled_ac = tf.random_normal([ac_dim]) * sy_sigma_2 + sy_mean
+        sy_logprob_n = tf.reduce_sum(tf.log(tf.rsqrt(2 * np.pi * sy_sigma_2)) - (sy_ac_na - sy_mean) ** 2 / (2 * sy_sigma_2), axis=1)  # Hint: Use the log probability under a multivariate gaussian. 
 
 
 
@@ -320,7 +320,6 @@ def train_PG(exp_name='',
         #====================================================================================#
 
         # YOUR_CODE_HERE
-        # trajectory-based PG currently
         u = np.empty(max_path_length)
         u[0] = 1
         u[1:] = gamma
