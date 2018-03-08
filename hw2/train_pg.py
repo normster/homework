@@ -169,14 +169,14 @@ def train_PG(exp_name='',
 
     if discrete:
         # YOUR_CODE_HERE
-        sy_logits_na = build_mlp(sy_ob_no, ac_dim, "sy_logits_na")
+        sy_logits_na = build_mlp(sy_ob_no, ac_dim, "sy_logits_na", n_layers=n_layers, size=size)
         sy_sampled_ac = tf.squeeze(tf.multinomial(sy_logits_na, 1), [1])
         idxs = tf.transpose(tf.stack([tf.range(tf.shape(sy_ac_na)[0]), sy_ac_na]))
         sy_logprob_n = tf.gather_nd(sy_logits_na, idxs) - tf.reduce_logsumexp(sy_logits_na, axis=1)
 
     else:
         # YOUR_CODE_HERE
-        sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_mean_na")
+        sy_mean = build_mlp(sy_ob_no, ac_dim, "sy_mean_na", n_layers=n_layers, size=size)
         sy_logstd = tf.Variable(tf.zeros([ac_dim]), "sy_logstd") # logstd should just be a trainable variable, not a network output.
         sy_sigma_2 = tf.exp(sy_logstd) ** 2
         sy_sampled_ac = tf.random_normal([ac_dim]) * sy_sigma_2 + sy_mean
@@ -207,7 +207,9 @@ def train_PG(exp_name='',
         # Define placeholders for targets, a loss function and an update op for fitting a 
         # neural network baseline. These will be used to fit the neural network baseline. 
         # YOUR_CODE_HERE
-        baseline_update_op = TODO
+        sy_bl_target_n = tf.placeholder(shape=[None], name="bl_target", dtype="float32")
+        baseline_loss = tf.losses.mean_squared_error(sy_bl_target_n, baseline_prediction)
+        baseline_update_op = tf.train.AdamOptimizer(learning_rate).minimize(baseline_loss)
 
 
     #========================================================================================#
@@ -355,9 +357,9 @@ def train_PG(exp_name='',
             # Hint #bl1: rescale the output from the nn_baseline to match the statistics
             # (mean and std) of the current or previous batch of Q-values. (Goes with Hint
             # #bl2 below.)
-
-            b_n = TODO
-            adv_n = q_n - b_n
+            b_n = sess.run(baseline_prediction, feed_dict={sy_ob_no: ob_no})
+            b_n_scaled = (b_n * np.std(q_n)) + np.mean(q_n)
+            adv_n = q_n - b_n_scaled
         else:
             adv_n = q_n.copy()
 
@@ -389,7 +391,8 @@ def train_PG(exp_name='',
             # targets to have mean zero and std=1. (Goes with Hint #bl1 above.)
 
             # YOUR_CODE_HERE    
-            pass
+            bl_target_n = (q_n - np.mean(q_n)) / np.std(q_n)
+            sess.run(baseline_update_op, feed_dict={sy_bl_target_n: bl_target_n, sy_ob_no: ob_no})
 
         #====================================================================================#
         #                           ----------SECTION 4----------
@@ -403,7 +406,6 @@ def train_PG(exp_name='',
         # and after an update, and then log them below. 
 
         # YOUR_CODE_HERE
-
         sess.run(update_op, feed_dict={sy_ob_no: ob_no, sy_ac_na: ac_na, sy_adv_n: adv_n})
 
         # Log diagnostics
